@@ -116,8 +116,18 @@ function DataSourceWrapper(props: withAppTypes) {
    */
   useEffect(() => {
     const initializeDataSource = async () => {
-      await dataSource.initialize({ params, query });
-      setIsDataSourceInitialized(true);
+      try {
+        await dataSource.initialize({ params, query });
+        setIsDataSourceInitialized(true);
+      } catch (error) {
+        console.error('Failed to initialize data source', error);
+        servicesManager.services.uiNotificationService?.show({
+          title: 'Error loading study',
+          message: error.message || 'Failed to load the study data source.',
+          type: 'error',
+          duration: 7000,
+        });
+      }
     };
 
     initializeDataSource();

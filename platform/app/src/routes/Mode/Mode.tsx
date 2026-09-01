@@ -62,6 +62,7 @@ export default function ModeRoute({
     hangingProtocolService,
     userAuthenticationService,
     customizationService,
+    uiNotificationService,
   } = servicesManager.services;
 
   const { extensions, sopClassHandlers, hangingProtocol } = mode;
@@ -117,11 +118,21 @@ export default function ModeRoute({
 
     // Todo: this should not be here, data source should not care about params
     const initializeDataSource = async (params, query) => {
-      await dataSource.initialize({
-        params,
-        query,
-      });
-      setStudyInstanceUIDs(dataSource.getStudyInstanceUIDs({ params, query }));
+      try {
+        await dataSource.initialize({
+          params,
+          query,
+        });
+        setStudyInstanceUIDs(dataSource.getStudyInstanceUIDs({ params, query }));
+      } catch (error) {
+        console.error('Failed to initialize data source', error);
+        uiNotificationService?.show({
+          title: 'Error loading study',
+          message: error.message || 'Failed to load the study data source.',
+          type: 'error',
+          duration: 7000,
+        });
+      }
     };
 
     initializeDataSource(params, query);

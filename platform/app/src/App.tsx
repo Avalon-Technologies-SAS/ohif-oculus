@@ -70,13 +70,40 @@ function App({
   defaultModes = [],
 }) {
   const [init, setInit] = useState(null);
+  const [initError, setInitError] = useState(null);
   useEffect(() => {
     const run = async () => {
-      appInit(config, defaultExtensions, defaultModes).then(setInit).catch(console.error);
+      appInit(config, defaultExtensions, defaultModes)
+        .then(setInit)
+        .catch(error => {
+          console.error('Failed to initialize application', error);
+          setInitError(error);
+        });
     };
 
     run();
   }, []);
+
+  if (initError) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          height: '100vh',
+          color: 'white',
+          background: '#000',
+          padding: '2rem',
+          textAlign: 'center',
+        }}
+      >
+        <h2>Failed to load the viewer</h2>
+        <p>{initError.message || String(initError)}</p>
+      </div>
+    );
+  }
 
   if (!init) {
     return null;
