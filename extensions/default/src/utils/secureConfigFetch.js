@@ -104,6 +104,7 @@ async function fetchConfigJson(normalizedPolicy) {
     credentials: 'same-origin',
     redirect: 'error',
     referrerPolicy: 'no-referrer',
+    cache: 'no-store',
   });
 
   if (!response.ok) {
