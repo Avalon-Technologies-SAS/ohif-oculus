@@ -23,7 +23,6 @@ import {
 } from '@cornerstonejs/tools/utilities/contourSegmentation/logicalOperators';
 import * as cornerstoneTools from '@cornerstonejs/tools';
 import * as labelmapInterpolation from '@cornerstonejs/labelmap-interpolation';
-import { ONNXSegmentationController } from '@cornerstonejs/ai';
 
 import { Types as OhifTypes, utils } from '@ohif/core';
 import {
@@ -92,27 +91,39 @@ const getPreviewTools = ({ toolGroupService }) => {
   return previewTools;
 };
 
-const segmentAI = new ONNXSegmentationController({
-  autoSegmentMode: true,
-  models: {
-    sam_b: [
-      {
-        name: 'sam-b-encoder',
-        url: 'https://huggingface.co/schmuell/sam-b-fp16/resolve/main/sam_vit_b_01ec64.encoder-fp16.onnx',
-        size: 180,
-        key: 'encoder',
-      },
-      {
-        name: 'sam-b-decoder',
-        url: 'https://huggingface.co/schmuell/sam-b-fp16/resolve/main/sam_vit_b_01ec64.decoder.onnx',
-        size: 17,
-        key: 'decoder',
-      },
-    ],
-  },
-  modelName: 'sam_b',
-});
+// '@cornerstonejs/ai' eagerly imports onnxruntime-web's webgpu backend, whose
+// bundled Emscripten loader throws `ReferenceError: __filename is not defined`
+// in this webpack build. Loading it lazily on first use (instead of a static
+// top-level import) keeps that failure from crashing the whole viewer on startup.
+let segmentAI: any = null;
 let segmentAIEnabled = false;
+
+async function getSegmentAI() {
+  if (!segmentAI) {
+    const { ONNXSegmentationController } = await import('@cornerstonejs/ai');
+    segmentAI = new ONNXSegmentationController({
+      autoSegmentMode: true,
+      models: {
+        sam_b: [
+          {
+            name: 'sam-b-encoder',
+            url: 'https://huggingface.co/schmuell/sam-b-fp16/resolve/main/sam_vit_b_01ec64.encoder-fp16.onnx',
+            size: 180,
+            key: 'encoder',
+          },
+          {
+            name: 'sam-b-decoder',
+            url: 'https://huggingface.co/schmuell/sam-b-fp16/resolve/main/sam_vit_b_01ec64.decoder.onnx',
+            size: 17,
+            key: 'decoder',
+          },
+        ],
+      },
+      modelName: 'sam_b',
+    });
+  }
+  return segmentAI;
+}
 
 function commandsModule({
   servicesManager,
@@ -1959,7 +1970,7 @@ function commandsModule({
         }
       });
 
-      if (segmentAI.enabled) {
+      if (segmentAI?.enabled) {
         segmentAI[`${action}Preview`](viewport.element);
       }
     },
@@ -1993,6 +2004,7 @@ function commandsModule({
     },
     toggleLabelmapAssist: async () => {
       const { viewport } = _getActiveViewportEnabledElement();
+      await getSegmentAI();
       const newState = !segmentAI.enabled;
       segmentAI.enabled = newState;
 

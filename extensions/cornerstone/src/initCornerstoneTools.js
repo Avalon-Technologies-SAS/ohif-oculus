@@ -47,16 +47,30 @@ import {
   SplineContourSegmentationTool,
   LabelMapEditWithContourTool,
 } from '@cornerstonejs/tools';
-import { LabelmapSlicePropagationTool, MarkerLabelmapTool } from '@cornerstonejs/ai';
 import * as polySeg from '@cornerstonejs/polymorphic-segmentation';
 
 import CalibrationLineTool from './tools/CalibrationLineTool';
 import ImageOverlayViewerTool from './tools/ImageOverlayViewerTool';
 
+// '@cornerstonejs/ai' eagerly imports onnxruntime-web's webgpu backend, whose
+// bundled Emscripten loader throws `ReferenceError: __filename is not defined`
+// in this webpack build. Loading it lazily keeps that failure from crashing
+// the whole viewer on startup; AI segmentation tools just won't register if it fails.
+function registerAiTools() {
+  import('@cornerstonejs/ai')
+    .then(({ LabelmapSlicePropagationTool, MarkerLabelmapTool }) => {
+      LabelmapSlicePropagationTool.isAnnotation = false;
+      MarkerLabelmapTool.isAnnotation = false;
+      addTool(LabelmapSlicePropagationTool);
+      addTool(MarkerLabelmapTool);
+    })
+    .catch(error => {
+      console.warn('AI segmentation tools failed to load and will be unavailable', error);
+    });
+}
+
 export default function initCornerstoneTools(configuration = {}) {
   CrosshairsTool.isAnnotation = false;
-  LabelmapSlicePropagationTool.isAnnotation = false;
-  MarkerLabelmapTool.isAnnotation = false;
   ReferenceLinesTool.isAnnotation = false;
   AdvancedMagnifyTool.isAnnotation = false;
   PlanarFreehandContourSegmentationTool.isAnnotation = false;
@@ -112,8 +126,7 @@ export default function initCornerstoneTools(configuration = {}) {
   addTool(PlanarFreehandContourSegmentationTool);
   addTool(SegmentSelectTool);
   addTool(SegmentLabelTool);
-  addTool(LabelmapSlicePropagationTool);
-  addTool(MarkerLabelmapTool);
+  registerAiTools();
   addTool(RegionSegmentPlusTool);
   addTool(LivewireContourSegmentationTool);
   addTool(SculptorTool);
@@ -176,8 +189,10 @@ const toolNames = {
   SegmentBidirectional: SegmentBidirectionalTool.toolName,
   SegmentSelect: SegmentSelectTool.toolName,
   SegmentLabel: SegmentLabelTool.toolName,
-  LabelmapSlicePropagation: LabelmapSlicePropagationTool.toolName,
-  MarkerLabelmap: MarkerLabelmapTool.toolName,
+  // Matches @cornerstonejs/ai's static toolName values; kept as literals since
+  // that package is now loaded lazily (see registerAiTools above).
+  LabelmapSlicePropagation: 'LabelmapSlicePropagation',
+  MarkerLabelmap: 'MarkerLabelmap',
   RegionSegmentPlus: RegionSegmentPlusTool.toolName,
   LivewireContourSegmentation: LivewireContourSegmentationTool.toolName,
   SculptorTool: SculptorTool.toolName,
