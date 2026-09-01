@@ -1,8 +1,10 @@
-navigator.serviceWorker.getRegistrations().then(function (registrations) {
-  for (let registration of registrations) {
-    registration.unregister();
-  }
-});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(function (registrations) {
+    for (let registration of registrations) {
+      registration.unregister();
+    }
+  });
+}
 
 // https://developers.google.com/web/tools/workbox/modules/workbox-window
 // All major browsers that support service worker also support native JavaScript
