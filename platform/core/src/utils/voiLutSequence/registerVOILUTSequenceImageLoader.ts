@@ -27,25 +27,111 @@ type ImageLoadObject = {
 
 type DicomImageLoaderFn = (imageId: string, options?: unknown) => ImageLoadObject;
 
-// Cache de LUT parseada por instancia (evita reprocesar el parseo cuando varios
+/**
+ * Origen de la LUT: la instancia (naturalizada) que contiene la VOILUTSequence y
+ * el objeto que sirve de clave para la cache de LUT parseadas.
+ */
+type VOILUTSource = {
+  instance: Record<string, any>;
+  cacheKey: object;
+};
+
+// Cache de LUT parseada por origen (evita reprocesar el parseo cuando varios
 // imageIds/frames comparten la misma instancia o cuando la cache de imágenes
 // de Cornerstone expulsa y recarga una imagen).
 const parsedLUTCache = new WeakMap<object, ParsedVOILUT | null>();
 
-function getParsedVOILUT(instance: object): ParsedVOILUT | null {
-  if (parsedLUTCache.has(instance)) {
-    return parsedLUTCache.get(instance);
+function getParsedVOILUT({ instance, cacheKey }: VOILUTSource): ParsedVOILUT | null {
+  if (parsedLUTCache.has(cacheKey)) {
+    return parsedLUTCache.get(cacheKey);
   }
   const parsed = parseVOILUTSequence(instance) ?? null;
-  parsedLUTCache.set(instance, parsed);
+  parsedLUTCache.set(cacheKey, parsed);
   return parsed;
 }
 
-function isEligibleInstance(instance): boolean {
-  if (!instance?.VOILUTSequence) {
-    return false;
+/**
+ * Construye una pseudo-instancia naturalizada con la VOILUTSequence leída del
+ * dataset P10 que el loader wadouri ya descargó y cacheó. Cubre el modo
+ * dicomjson, donde la metadata OHIF sale del JSON y puede no traer la secuencia.
+ *
+ * Solo se toma el primer item (política v1). LUTData se entrega como vista
+ * sobre los bytes OW del dataset; parseVOILUTSequence la copia.
+ */
+function getVOILUTInstanceFromDataSet(imageId: string): VOILUTSource | undefined {
+  const { url } = dicomImageLoader.wadouri.parseImageId(imageId);
+  const dataSet = dicomImageLoader.wadouri.dataSetCacheManager.get(url);
+  const item = dataSet?.elements?.x00283010?.items?.[0]?.dataSet;
+  const lutDataElement = item?.elements?.x00283006;
+  if (!item?.elements?.x00283002 || !lutDataElement?.length) {
+    return;
   }
 
+  // Los items de una secuencia comparten el byteArray del dataset padre y
+  // dataOffset es absoluto dentro de ese byteArray.
+  const { byteArray } = item;
+  const LUTData = new Uint8Array(
+    byteArray.buffer,
+    byteArray.byteOffset + lutDataElement.dataOffset,
+    lutDataElement.length
+  );
+
+  return {
+    instance: {
+      VOILUTSequence: [
+        {
+          LUTDescriptor: [0, 1, 2].map(index => item.uint16('x00283002', index)),
+          LUTData,
+        },
+      ],
+      PixelRepresentation: dataSet.uint16('x00280103'),
+      Modality: dataSet.string('x00080060'),
+      PhotometricInterpretation: dataSet.string('x00280004'),
+      SamplesPerPixel: dataSet.uint16('x00280002'),
+    },
+    cacheKey: item,
+  };
+}
+
+/**
+ * Resuelve de dónde sale la VOILUTSequence:
+ * 1. La metadata OHIF (DICOMweb JSON / DICOM JSON), comportamiento v1.
+ * 2. Si no la trae, el dataset P10 cacheado por el loader wadouri.
+ */
+function resolveVOILUTSource(
+  imageId: string,
+  metadataProvider: InstanceMetadataProvider
+): VOILUTSource | undefined {
+  const instance = metadataProvider.getInstance(imageId);
+  if (instance?.VOILUTSequence) {
+    return { instance, cacheKey: instance };
+  }
+
+  const dataSetSource = getVOILUTInstanceFromDataSet(imageId);
+  if (!dataSetSource) {
+    return;
+  }
+
+  // La metadata OHIF (si existe) manda sobre la del dataset para elegibilidad.
+  return {
+    instance: { ...dataSetSource.instance, ...pickEligibilityFields(instance) },
+    cacheKey: dataSetSource.cacheKey,
+  };
+}
+
+function pickEligibilityFields(instance): Record<string, unknown> {
+  const fields = {};
+  ['Modality', 'PhotometricInterpretation', 'SamplesPerPixel', 'PixelRepresentation'].forEach(
+    key => {
+      if (instance?.[key] !== undefined && instance[key] !== '') {
+        fields[key] = instance[key];
+      }
+    }
+  );
+  return fields;
+}
+
+function isEligibleInstance(instance): boolean {
   if (!ELIGIBLE_MODALITIES.includes(instance.Modality)) {
     return false;
   }
@@ -79,12 +165,12 @@ export function applyVOILUTSequenceToImage(
       return image;
     }
 
-    const instance = metadataProvider.getInstance(imageId);
-    if (!instance || !isEligibleInstance(instance)) {
+    const source = resolveVOILUTSource(imageId, metadataProvider);
+    if (!source || !isEligibleInstance(source.instance)) {
       return image;
     }
 
-    const voiLut = getParsedVOILUT(instance);
+    const voiLut = getParsedVOILUT(source);
     if (!voiLut) {
       return image;
     }

@@ -52,6 +52,31 @@ ningún paquete `@cornerstonejs/*`.
    campos del objeto imagen tanto para el VOI inicial como para el reset, por
    lo que "Reset" vuelve a un estado consistente post-LUT.
 
+## Fuente de la LUT
+
+El wrapper resuelve la VOILUTSequence en este orden:
+
+1. **Metadata OHIF** de la instancia (`DicomMetadataStore`: DICOMweb JSON o
+   DICOM JSON). Es el comportamiento original de v1.
+2. **Dataset P10 cacheado por el loader `wadouri`**
+   (`dicomImageLoader.wadouri.dataSetCacheManager`), cuando la metadata OHIF no
+   trae la secuencia. Es el caso del modo **dicomjson**: el JSON (p. ej. el que
+   genera Oculus) no incluye la VOILUTSequence, pero el archivo completo sí se
+   descarga por WADO-URI (`dicomweb:`/`wadouri:`). Se arma una pseudo-instancia
+   naturalizada (`LUTDescriptor` + `LUTData` como vista sobre los bytes OW) y se
+   reutiliza el mismo parser.
+
+Para la elegibilidad (modalidad, fotometría, samples per pixel) mandan los
+valores de la metadata OHIF; si faltan, se usan los del dataset.
+
+Límites del fallback:
+
+- Solo aplica a imágenes cargadas por `wadouri`/`dicomweb`/`dicomfile`. Con
+  `wadors` no hay dataset P10, así que si la metadata DICOMweb no trae la
+  secuencia la imagen sigue sin LUT.
+- Se asume LUTData little-endian (todas las sintaxis de transferencia vigentes;
+  Explicit VR Big Endian está retirada).
+
 ## Decisiones técnicas relevantes
 
 - **Activación en `onModeEnter` y no en `preRegistration` de
